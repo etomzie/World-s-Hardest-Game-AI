@@ -170,15 +170,16 @@ class Game():
             self.states[genome] = 1
             self.fitness[genome] = 0
             self.players[genome] = Player()
+            genome.fitness = 0
             
         
         self.max_loop_iteration = 300
 
     
 
-    def update(self, genomes, config):
+    def update(self, genomes, config, networks):
         dt = self.clock.tick(60) / 1000.0 
-        dt *= 3
+        dt *= 2
                 
         for event in pygame.event.get():
             if event.type == QUIT:
@@ -206,7 +207,7 @@ class Game():
                         
                     if j == 0 or grid[i][j - 1] == 0:
                         pygame.draw.line(screen, "#1e1e1e", (tileSIZE * j, tileSIZE * i), (tileSIZE * (j), tileSIZE * (i + 1)), 4)
-                    if i == tileCOL - 1 or grid[i][j + 1] == 0:
+                    if j == tileCOL - 1 or grid[i][j + 1] == 0:
                         pygame.draw.line(screen, "#1e1e1e", (tileSIZE * (j + 1), tileSIZE * i), (tileSIZE * (j + 1), tileSIZE * (i + 1)), 4)
                         
                         
@@ -220,31 +221,72 @@ class Game():
                 continue
             
             player = self.players[genome]
+            if grid[int(player.y / tileSIZE)][int(player.x / tileSIZE)] == 0:
+                player.x = spawn_point[0]
+                player.y = spawn_point[1]
+
+
+            #self.fitness[genome] += 0.1
+            #genome.fitness += 0.2
 
             #print(ge)
             # Create a neural network from this genome
-            net = neat.nn.FeedForwardNetwork.create(genome, config)
-            genome.fitness = float('-inf')
-                
+            net = networks[genome]
+            """
             enemies = []
             for enemy in self.enemies:
                 enemies.extend([enemy.x, enemy.y])
                 
             enemies = tuple(enemies)
-            end = (abs(player.x - dest[0]), abs(player.y - dest[1]))
+            end = (dest[0], dest[1])
+            pos = (player.x, player.y)
+            #end = (abs(player.x - dest[0]), abs(player.y - dest[1]))
+            output = net.activate(enemies + pos + end)
+
+            """
+
+            # Calculate distances relative to the player
+            inputs = []
+            for enemy in self.enemies:
+                # Distance to each enemy (dx, dy)
+                inputs.extend([enemy.x - player.x, enemy.y - player.y])
+
+            # Distance to the destination (dx, dy)
+            inputs.extend([dest[0] - player.x, dest[1] - player.y])
+
+            # Feed these 10 inputs into the network (update configs.cfg num_inputs to 10!)
+            output = net.activate(inputs)
             
             
-            output = net.activate(enemies + end)
             output[0] = round(output[0])
             output[1] = round(output[1])
             
-            
+            prev = (player.x, player.y)
             player.update(dt, output)
+            after = (player.x, player.y)
+            
+            if prev[0] < after[0]:
+                genome.fitness += 1
+            else:
+                genome.fitness -= 1
+            if prev[1] > after[1]:
+                genome.fitness += 1
+            else:
+                genome.fitness -= 1
+        
+
+            
+            if grid[int(player.y / tileSIZE)][int(player.x / tileSIZE)] in {1, -1}:
+                genome.fitness -= 10
+            
+            
+            
+
             #print(player.x, player.y)
             
             player.draw(screen)
             
-            
+
 
            
             
@@ -254,6 +296,8 @@ class Game():
                     #self.players.y = spawn_point[1]
                     #self.fitness[genome] = math.sqrt((dest[0] - player.x) ** 2 + (dest[1] - player.y) ** 2) * -1
                     self.states[genome] = 0
+
+
 
                     #genome.fitness = self.fitness[i]
                     
@@ -271,17 +315,18 @@ class Game():
 
                 #self.fitness[genome] = -10000
                 player = self.players[genome]
-                self.fitness[genome] = math.sqrt((dest[0] - player.x) ** 2 + (dest[1] - player.y) ** 2) * -1
+                #self.fitness[genome] = math.sqrt((dest[0] - player.x) ** 2 + (dest[1] - player.y) ** 2) * -1
                 
                 
                 if grid[int(player.y / tileSIZE)][int(player.x / tileSIZE)] in {1, -1}:
                     #print("here")
-                    self.fitness[genome] -= 10000
+                    genome.fitness -= 20000
                 elif grid[int(player.y / tileSIZE)][int(player.x / tileSIZE)] == 2:
-                    self.fitness[genome] += 10000
+                    genome.fitness += 10000
                 else:
                     pass
-                    #self.fitness[genome] = math.sqrt((dest[0] - player.x) ** 2 + (dest[1] - player.y) ** 2) * -1
+                genome.fitness -= math.sqrt((dest[0] - player.x) ** 2 + (dest[1] - player.y) ** 2) * 4
+                
                     
                     
                     
@@ -313,9 +358,14 @@ class Game():
 def eval_genomes(genomes, config):
     
     game = Game(genomes)
-    print("RSEST")
+    networks = {}
+    for genome_id, genome in genomes:
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+        networks[genome] = net
+
+
     while 1:
-        game.update(genomes, config)
+        game.update(genomes, config, networks)
 
             
         states = game.states
@@ -323,7 +373,7 @@ def eval_genomes(genomes, config):
             #fitness = game.fitness
             for genome_id, genome in genomes:
                 # Create a neural network from this genome
-                genome.fitness = game.fitness[genome]
+                genome.fitness += game.fitness[genome]
             break
         
     
@@ -348,8 +398,8 @@ p.add_reporter(neat.StdOutReporter(True))
 winner = p.run(eval_genomes, 10000)
 
 # Test the winner
-print('\nBest genome:\n{!s}'.format(winner))
 
+print('\nBest genome:\n{!s}'.format(winner))
 
 
 #pygame.draw.rect(surface, color, rect, width=0, border_radius=-1)
